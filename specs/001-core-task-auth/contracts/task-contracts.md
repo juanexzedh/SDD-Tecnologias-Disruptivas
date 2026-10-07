@@ -2,7 +2,7 @@
 
 **Feature**: `001-core-task-auth`  
 **Date**: 2026-10-06  
-**Principio Constitucional**: III (Contrato explícito previo a la implementación) y VII (Seguridad por defecto)  
+**Principio Constitucional**: III (Contrato explícito previo a la implementación) y VII (Seguridad por defecto con protección CSRF)  
 
 ---
 
@@ -52,21 +52,24 @@
 - **Descripción**: Muestra la interfaz con el formulario para registrar una nueva tarea.
 - **Autenticación requerida**: **SÍ** (`@login_required`).
 - **Respuestas**:
-  - `200 OK`: Renderiza plantilla `tasks/new.html`.
+  - `200 OK`: Renderiza plantilla `tasks/new.html` conteniendo el campo con `{{ csrf_token() }}`.
   - `302 Found`: Redirección a `/login` si no está autenticado.
 
 ### 2.2 `POST /tasks`
 - **Descripción**: Crea una nueva tarea en estado `'pending'` asociada al usuario autenticado y genera un evento de auditoría (`TASK_CREATED`).
 - **Autenticación requerida**: **SÍ** (`@login_required`).
+- **Protección CSRF**: Requerida (Principio VII). Se debe enviar `csrf_token` en el formulario o en la cabecera `X-CSRFToken`.
 - **Payload de Entrada** (`application/x-www-form-urlencoded` o `application/json`):
   ```json
   {
+    "csrf_token": "IjNkYj...token_firmado_csrf",
     "title": "Implementar endpoints de tareas",
     "description": "Texto plano sin etiquetas HTML ni scripts.",
     "due_date": "2026-10-12"
   }
   ```
 - **Validaciones en Backend**:
+  - `csrf_token`: Obligatorio y válido contra la sesión actual.
   - `title`: Obligatorio, cadena no vacía (trim), longitud de 1 a 200 caracteres.
   - `description`: Opcional, texto plano (hasta 2000 caracteres). Caracteres especiales son escapados para neutralizar XSS; se preservan saltos de línea.
   - `due_date`: Opcional, formato de fecha válido (`YYYY-MM-DD`). Se admiten fechas pasadas, presentes o futuras.
@@ -87,7 +90,15 @@
       }
     }
     ```
-  - `400 Bad Request`:
+  - `400 Bad Request` (Fallo de Validación CSRF):
+    ```json
+    {
+      "status": "error",
+      "code": "CSRF_ERROR",
+      "message": "Token CSRF ausente o inválido."
+    }
+    ```
+  - `400 Bad Request` (Fallo de Validación de Negocio):
     ```json
     {
       "status": "error",
@@ -108,15 +119,17 @@
 - **Descripción**: Muestra la interfaz con el formulario prellenado para editar una tarea existente.
 - **Autenticación requerida**: **SÍ** (`@login_required`).
 - **Respuestas**:
-  - `200 OK`: Renderiza plantilla `tasks/edit.html` con los datos de la tarea.
+  - `200 OK`: Renderiza plantilla `tasks/edit.html` conteniendo el token CSRF y los datos de la tarea.
   - `404 Not Found` / `403 Forbidden`: Si la tarea no existe o no pertenece al usuario autenticado.
 
 ### 3.2 `POST /tasks/<int:task_id>/edit`
 - **Descripción**: Actualiza los atributos de una tarea (título, descripción, fecha límite) preservando su estado actual y registrando el evento de auditoría (`TASK_UPDATED`).
 - **Autenticación requerida**: **SÍ** (`@login_required`).
+- **Protección CSRF**: Requerida (Principio VII). Se debe enviar `csrf_token`.
 - **Payload de Entrada** (`application/x-www-form-urlencoded` o `application/json`):
   ```json
   {
+    "csrf_token": "IjNkYj...token_firmado_csrf",
     "title": "Título actualizado de la tarea",
     "description": "Nueva descripción en texto plano.",
     "due_date": "2026-10-20"
@@ -139,7 +152,8 @@
       }
     }
     ```
-  - `400 Bad Request`: Título vacío, longitud excedida o formato de fecha inválido.
+  - `400 Bad Request` (Fallo CSRF): Token CSRF ausente o inválido (`code: CSRF_ERROR`).
+  - `400 Bad Request` (Fallo de Validación): Título vacío, longitud excedida o formato de fecha inválido.
   - `403 Forbidden` / `404 Not Found`: Tarea no encontrada o perteneciente a otro usuario (cero fuga de datos).
 
 ---
@@ -149,9 +163,11 @@
 ### 4.1 `POST /tasks/<int:task_id>/status`
 - **Descripción**: Modifica el estado del ciclo de vida de la tarea según la máquina de estados permitida y genera un evento de auditoría (`TASK_STATUS_CHANGED`).
 - **Autenticación requerida**: **SÍ** (`@login_required`).
+- **Protección CSRF**: Requerida (Principio VII). Se debe enviar `csrf_token`.
 - **Payload de Entrada** (`application/x-www-form-urlencoded` o `application/json`):
   ```json
   {
+    "csrf_token": "IjNkYj...token_firmado_csrf",
     "status": "in_progress"
   }
   ```
@@ -176,7 +192,8 @@
       }
     }
     ```
-  - `400 Bad Request`:
+  - `400 Bad Request` (Fallo CSRF): Token CSRF ausente o inválido (`code: CSRF_ERROR`).
+  - `400 Bad Request` (Fallo de Transición de Negocio):
     ```json
     {
       "status": "error",

@@ -2,7 +2,7 @@
 
 **Feature**: `001-core-task-auth`  
 **Date**: 2026-10-06  
-**Stack**: Python 3.11+, Flask, SQLAlchemy, Flask-Migrate, pytest  
+**Stack**: Python 3.11+, Flask, SQLAlchemy, Flask-Migrate, Flask-WTF (CSRF), pytest  
 
 ---
 
@@ -13,60 +13,76 @@
 
 ---
 
-## 2. Puesta en Marcha con un Solo Comando (Principio I & Restricciones)
+## 2. Puesta en Marcha con Comandos Estándar desde la Raíz (Restricciones del Stack)
+
+El repositorio incluye un archivo versionado `.flaskenv` en la raíz que apunta a `FLASK_APP=src/taskcontrol:create_app`. Al instalar `requirements.txt` (que incluye `python-dotenv`), los comandos nativos de Flask funcionan de inmediato desde la raíz sin pasos manuales de configuración:
 
 ### 2.1 Instalación de dependencias
 ```bash
 python -m venv .venv
 # En Windows PowerShell:
 .venv\Scripts\Activate.ps1
-# O en bash:
+# O en bash/macOS:
 source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-### 2.2 Variables de entorno mínimas (`.env`)
-Crear un archivo `.env` en la raíz (no versionado):
-```env
-FLASK_APP=src/taskcontrol:create_app
-FLASK_ENV=development
-SECRET_KEY=dev-secret-key-taskcontrol-monolith
-DATABASE_URL=sqlite:///taskcontrol.db
-```
+### 2.2 Variables de entorno y gestión de secretos (Principio VII)
+- El repositorio **no contiene secretos reales**.
+- Se incluye el archivo de referencia [.env.example](file:///G:/INFO%2003-02-2021/DOCUMENTOS/Jehg/jehg/UNIVERSIDAD/6%20Semestre/Pagina%20Disruptivas/.env.example):
+  ```env
+  FLASK_APP=src/taskcontrol:create_app
+  FLASK_ENV=development
+  SECRET_KEY=cambiar-por-clave-secreta-en-produccion
+  DATABASE_URL=sqlite:///taskcontrol.db
+  ```
+- Para desarrollo local, opcionalmente copiar la plantilla:
+  ```bash
+  cp .env.example .env
+  ```
+  *(Si se omite `.env` en desarrollo, `config.py` genera una advertencia y aplica un fallback local; en producción, la ausencia de `SECRET_KEY` en el entorno detiene el arranque inmediatamente).*
 
 ### 2.3 Inicialización de Base de Datos y Migraciones (Principio VI)
+Ejecutar desde la raíz del repositorio:
 ```bash
-# Aplicar migraciones iniciales para crear users, tasks y audit_logs
 flask db upgrade
 ```
+*(Aplica las migraciones versionadas en `migrations/` y crea las tablas `users`, `tasks` y `audit_logs` en `taskcontrol.db`).*
 
-### 2.4 Ejecución de la Aplicación
+### 2.4 Ejecución del Proceso Monolítico (Principio I)
 ```bash
-python run.py
+flask run
+# O alternativamente: python run.py
 # La aplicación queda disponible en http://127.0.0.1:5000
 ```
 
 ---
 
-## 3. Ejecución de Pruebas Automatizadas (TDD - Principio IV)
+## 3. Ejecución de Pruebas Automatizadas (TDD - Principios IV y VII)
 
-Para verificar el cumplimiento del principio Test-First y los contratos antes o después de la implementación:
+Para verificar el cumplimiento del principio Test-First, los contratos y la seguridad:
 
 ```bash
-# 1. Ejecutar pruebas unitarias de la capa de dominio (servicios y reglas bloqueantes)
+# 1. Pruebas unitarias de la capa de dominio (servicios y reglas bloqueantes TDD)
+# (Se ejecutan con base de datos en memoria y SECRET_KEY aislada para testing)
 pytest tests/unit/ -v
 
-# 2. Ejecutar pruebas de integración de rutas HTTP y contratos
+# 2. Pruebas de integración de rutas HTTP y contratos
 pytest tests/integration/ -v
 
-# 3. Ejecutar toda la suite con reporte de cobertura
+# 3. Verificación de la barrera de seguridad CSRF (rechazo de POST sin token)
+pytest tests/integration/test_csrf.py -v
+
+# 4. Suite completa con cobertura de código
 pytest --cov=src/taskcontrol tests/
 ```
 
 ---
 
-## 4. Escenarios de Validación Extremo a Extremo (Manual o curl)
+## 4. Escenarios de Validación Extremo a Extremo en Navegador
+
+Todos los formularios HTML de la aplicación implementan protección CSRF mediante `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">` gracias a `CSRFProtect` de `Flask-WTF`.
 
 ### Escenario 1: Registro de Usuario (HU-12)
 1. Navegar a `http://127.0.0.1:5000/register`.
@@ -100,4 +116,8 @@ pytest --cov=src/taskcontrol tests/
 1. Editar la tarea creada modificando su título a `"Mi primera tarea (editada)"`.
    - **Resultado esperado**: Se guarda el cambio, se preserva el estado y se registra evento `TASK_UPDATED`.
 2. Iniciar sesión con un segundo usuario `otro@ejemplo.com`.
-   - **Resultado esperado**: Su listado de tareas está completamente vacío. Intentar acceder a `/tasks/1/edit` del primer usuario responde `404 Not Found` o `403 Forbidden` (cero fuga de información).
+   - **Resultado esperado**: Su listado de tareas está completamente vacío. Intentar acceder a `/tasks/1/edit` del primer usuario responde `404 Not Found` o `403 Forbidden` (cero fuga de información entre cuentas).
+
+### Escenario 6: Validación de Seguridad CSRF
+1. Enviar una petición `POST` hacia `/tasks` o `/login` omitiendo el token CSRF (p. ej. mediante herramienta externa o script malicioso sin token).
+   - **Resultado esperado**: El servidor rechaza la petición con código **`400 Bad Request`** y mensaje de error CSRF antes de procesar cualquier dato.

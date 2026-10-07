@@ -2,7 +2,7 @@
 
 **Feature**: `001-core-task-auth`  
 **Date**: 2026-10-06  
-**Principio Constitucional**: III (Contrato explícito previo a la implementación)  
+**Principio Constitucional**: III (Contrato explícito previo a la implementación) y VII (Seguridad por defecto con protección CSRF)  
 
 ---
 
@@ -12,19 +12,22 @@
 - **Descripción**: Muestra la interfaz con el formulario de registro de nuevos usuarios.
 - **Autenticación requerida**: No. Si ya existe sesión activa, redirige (302) a `/tasks`.
 - **Códigos de Respuesta**:
-  - `200 OK`: Renderiza plantilla `auth/register.html`.
+  - `200 OK`: Renderiza plantilla `auth/register.html` conteniendo el token CSRF (`{{ csrf_token() }}`).
 
 ### 1.2 `POST /register`
 - **Descripción**: Procesa la creación de una nueva cuenta de usuario.
 - **Autenticación requerida**: No.
+- **Protección CSRF**: Requerida (Principio VII). Debe enviarse `csrf_token` como campo de formulario o cabecera `X-CSRFToken`.
 - **Payload de Entrada** (`application/x-www-form-urlencoded` o `application/json`):
   ```json
   {
+    "csrf_token": "IjNkYj...token_firmado_csrf",
     "email": "usuario@ejemplo.com",
     "password": "Password123"
   }
   ```
 - **Validaciones en Backend**:
+  - `csrf_token`: Obligatorio y válido contra la sesión actual.
   - `email`: Obligatorio, formato válido de correo, normalizado con trim y minúsculas.
   - `password`: Obligatorio, longitud mínima de 8 caracteres, al menos 1 letra y al menos 1 número.
 - **Respuestas**:
@@ -40,7 +43,15 @@
       }
     }
     ```
-  - `400 Bad Request`:
+  - `400 Bad Request` (Fallo de Validación CSRF):
+    ```json
+    {
+      "status": "error",
+      "code": "CSRF_ERROR",
+      "message": "Token CSRF ausente o inválido."
+    }
+    ```
+  - `400 Bad Request` (Fallo de Validación de Negocio):
     ```json
     {
       "status": "error",
@@ -68,14 +79,16 @@
 - **Descripción**: Muestra la interfaz del formulario de inicio de sesión.
 - **Autenticación requerida**: No. Si ya existe sesión activa, redirige (302) a `/tasks`.
 - **Códigos de Respuesta**:
-  - `200 OK`: Renderiza plantilla `auth/login.html`.
+  - `200 OK`: Renderiza plantilla `auth/login.html` conteniendo el token CSRF.
 
 ### 2.2 `POST /login`
 - **Descripción**: Valida credenciales e inicializa la sesión de usuario activa.
 - **Autenticación requerida**: No.
+- **Protección CSRF**: Requerida (Principio VII). Debe enviarse `csrf_token` como campo de formulario o cabecera `X-CSRFToken`.
 - **Payload de Entrada** (`application/x-www-form-urlencoded` o `application/json`):
   ```json
   {
+    "csrf_token": "IjNkYj...token_firmado_csrf",
     "email": "usuario@ejemplo.com",
     "password": "Password123"
   }
@@ -93,12 +106,12 @@
       }
     }
     ```
-  - `400 Bad Request`:
+  - `400 Bad Request` (Fallo CSRF o campos incompletos):
     ```json
     {
       "status": "error",
-      "code": "MISSING_FIELDS",
-      "message": "Correo y contraseña son requeridos."
+      "code": "CSRF_ERROR",
+      "message": "Token CSRF ausente o inválido."
     }
     ```
   - `401 Unauthorized`:
@@ -113,7 +126,13 @@
 ### 2.3 `POST /logout`
 - **Descripción**: Finaliza y destruye la sesión activa en el servidor.
 - **Autenticación requerida**: Sí (`@login_required`). Si no está autenticado, responde 302 a `/login`.
-- **Payload de Entrada**: Ninguno.
+- **Protección CSRF**: Requerida (Principio VII). Se invoca mediante formulario POST con `csrf_token` para evitar desautenticación forzada por CSRF.
+- **Payload de Entrada**:
+  ```json
+  {
+    "csrf_token": "IjNkYj...token_firmado_csrf"
+  }
+  ```
 - **Respuestas**:
   - `302 Found` (Navegador): Elimina los datos de sesión (`session.clear()`) y redirige a `/login` con mensaje flash.
   - `200 OK` (API/JSON):
@@ -123,3 +142,4 @@
       "message": "Sesión finalizada exitosamente"
     }
     ```
+  - `400 Bad Request` (Fallo CSRF): Token ausente o manipulado.
